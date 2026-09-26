@@ -1,19 +1,51 @@
+import os
+import secrets
 from datetime import date, timedelta
+
+import click
 from flask import Flask, render_template, request, redirect, url_for, flash
 from flask_login import (
     LoginManager, UserMixin, login_user, logout_user,
     login_required, current_user
 )
+from flask_wtf.csrf import CSRFProtect
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from models import db, Admin, Book, Student, IssueRecord
 
+
+def _clean_form_value(field_name, default=''):
+    value = request.form.get(field_name, default)
+    if value is None:
+        return default
+    return str(value).strip()
+
+
+def _parse_positive_int(value, minimum=0):
+    if value is None:
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed < minimum:
+        return None
+    return parsed
+
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'change-this-secret-key'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///library.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config.update(
+    SECRET_KEY=os.environ.get('SECRET_KEY') or secrets.token_hex(32),
+    SQLALCHEMY_DATABASE_URI=os.environ.get('DATABASE_URL', 'sqlite:///library.db'),
+    SQLALCHEMY_TRACK_MODIFICATIONS=False,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SECURE=os.environ.get('SESSION_COOKIE_SECURE', '').lower() in {'1', 'true', 'yes'},
+)
+
+os.makedirs(app.instance_path, exist_ok=True)
 
 db.init_app(app)
+CSRFProtect(app)
 
 login_manager = LoginManager()
 login_manager.init_app(app)
@@ -28,7 +60,7 @@ class AdminUser(UserMixin):
 
 @login_manager.user_loader
 def load_user(user_id):
-    admin = Admin.query.get(int(user_id))
+    admin = db.session.get(Admin, int(user_id))
     return AdminUser(admin) if admin else None
 
 
@@ -37,8 +69,12 @@ def load_user(user_id):
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
+        username = _clean_form_value('username')
+        password = _clean_form_value('password')
+        if not username or not password:
+            flash('Username and password are required', 'danger')
+            return render_template('login.html')
+
         admin = Admin.query.filter_by(username=username).first()
         if admin and check_password_hash(admin.password_hash, password):
             login_user(AdminUser(admin))
@@ -47,7 +83,7 @@ def login():
     return render_template('login.html')
 
 
-@app.route('/logout')
+@app.route('/logout', methods=['POST'])
 @login_required
 def logout():
     logout_user()
@@ -95,13 +131,23 @@ def books():
 @login_required
 def add_book():
     if request.method == 'POST':
+        title = _clean_form_value('title')
+        author = _clean_form_value('author')
+        isbn = _clean_form_value('isbn')
+        category = _clean_form_value('category')
+        total_copies = _parse_positive_int(request.form.get('total_copies'), minimum=1)
+
+        if not title or not author or not category or total_copies is None:
+            flash('Title, author, category, and valid total copies are required', 'danger')
+            return render_template('book_form.html', book=None)
+
         book = Book(
-            title=request.form['title'],
-            author=request.form['author'],
-            isbn=request.form['isbn'],
-            category=request.form['category'],
-            total_copies=int(request.form['total_copies']),
-            available_copies=int(request.form['total_copies']),
+            title=title,
+            author=author,
+            isbn=isbn,
+            category=category,
+            total_copies=total_copies,
+            available_copies=total_copies,
         )
         db.session.add(book)
         db.session.commit()
@@ -113,14 +159,24 @@ def add_book():
 @app.route('/books/edit/<int:book_id>', methods=['GET', 'POST'])
 @login_required
 def edit_book(book_id):
-    book = Book.query.get_or_404(book_id)
+    book = db.get_or_404(Book, book_id)
     if request.method == 'POST':
-        diff = int(request.form['total_copies']) - book.total_copies
-        book.title = request.form['title']
-        book.author = request.form['author']
-        book.isbn = request.form['isbn']
-        book.category = request.form['category']
-        book.total_copies = int(request.form['total_copies'])
+        title = _clean_form_value('title')
+        author = _clean_form_value('author')
+        isbn = _clean_form_value('isbn')
+        category = _clean_form_value('category')
+        total_copies = _parse_positive_int(request.form.get('total_copies'), minimum=1)
+
+        if not title or not author or not category or total_copies is None:
+            flash('Title, author, category, and valid total copies are required', 'danger')
+            return render_template('book_form.html', book=book)
+
+        diff = total_copies - book.total_copies
+        book.title = title
+        book.author = author
+        book.isbn = isbn
+        book.category = category
+        book.total_copies = total_copies
         book.available_copies = max(0, book.available_copies + diff)
         db.session.commit()
         flash('Book updated successfully', 'success')
@@ -128,10 +184,13 @@ def edit_book(book_id):
     return render_template('book_form.html', book=book)
 
 
-@app.route('/books/delete/<int:book_id>')
+@app.route('/books/delete/<int:book_id>', methods=['POST'])
 @login_required
 def delete_book(book_id):
-    book = Book.query.get_or_404(book_id)
+    book = db.get_or_404(Book, book_id)
+    if book.issues:
+        flash('Cannot delete a book with existing issue records', 'danger')
+        return redirect(url_for('books'))
     db.session.delete(book)
     db.session.commit()
     flash('Book deleted', 'info')
@@ -151,11 +210,20 @@ def students():
 @login_required
 def add_student():
     if request.method == 'POST':
+        name = _clean_form_value('name')
+        roll_number = _clean_form_value('roll_number')
+        email = _clean_form_value('email')
+        department = _clean_form_value('department')
+
+        if not name or not roll_number:
+            flash('Name and roll number are required', 'danger')
+            return render_template('student_form.html', student=None)
+
         student = Student(
-            name=request.form['name'],
-            roll_number=request.form['roll_number'],
-            email=request.form['email'],
-            department=request.form['department'],
+            name=name,
+            roll_number=roll_number,
+            email=email,
+            department=department,
         )
         db.session.add(student)
         db.session.commit()
@@ -167,22 +235,34 @@ def add_student():
 @app.route('/students/edit/<int:student_id>', methods=['GET', 'POST'])
 @login_required
 def edit_student(student_id):
-    student = Student.query.get_or_404(student_id)
+    student = db.get_or_404(Student, student_id)
     if request.method == 'POST':
-        student.name = request.form['name']
-        student.roll_number = request.form['roll_number']
-        student.email = request.form['email']
-        student.department = request.form['department']
+        name = _clean_form_value('name')
+        roll_number = _clean_form_value('roll_number')
+        email = _clean_form_value('email')
+        department = _clean_form_value('department')
+
+        if not name or not roll_number:
+            flash('Name and roll number are required', 'danger')
+            return render_template('student_form.html', student=student)
+
+        student.name = name
+        student.roll_number = roll_number
+        student.email = email
+        student.department = department
         db.session.commit()
         flash('Student updated successfully', 'success')
         return redirect(url_for('students'))
     return render_template('student_form.html', student=student)
 
 
-@app.route('/students/delete/<int:student_id>')
+@app.route('/students/delete/<int:student_id>', methods=['POST'])
 @login_required
 def delete_student(student_id):
-    student = Student.query.get_or_404(student_id)
+    student = db.get_or_404(Student, student_id)
+    if student.issues:
+        flash('Cannot delete a student with existing issue records', 'danger')
+        return redirect(url_for('students'))
     db.session.delete(student)
     db.session.commit()
     flash('Student deleted', 'info')
@@ -202,11 +282,22 @@ def issues():
 @login_required
 def add_issue():
     if request.method == 'POST':
-        book = Book.query.get(int(request.form['book_id']))
-        student = Student.query.get(int(request.form['student_id']))
-        if not book or book.available_copies < 1:
+        book_id = _parse_positive_int(request.form.get('book_id'))
+        student_id = _parse_positive_int(request.form.get('student_id'))
+
+        if book_id is None or student_id is None:
+            flash('A valid book and student selection are required', 'danger')
+            return redirect(url_for('add_issue'))
+
+        book = db.session.get(Book, book_id)
+        student = db.session.get(Student, student_id)
+        if not book or not student:
+            flash('Selected book or student was not found', 'danger')
+            return redirect(url_for('add_issue'))
+        if book.available_copies < 1:
             flash('Book not available for issue', 'danger')
             return redirect(url_for('add_issue'))
+
         record = IssueRecord(
             book_id=book.id,
             student_id=student.id,
@@ -224,10 +315,10 @@ def add_issue():
     return render_template('issue_form.html', books=books_available, students=student_list)
 
 
-@app.route('/issues/return/<int:record_id>')
+@app.route('/issues/return/<int:record_id>', methods=['POST'])
 @login_required
 def return_book(record_id):
-    record = IssueRecord.query.get_or_404(record_id)
+    record = db.get_or_404(IssueRecord, record_id)
     if not record.returned:
         record.returned = True
         record.return_date = date.today()
@@ -237,24 +328,33 @@ def return_book(record_id):
     return redirect(url_for('issues'))
 
 
-# ---------- CLI helper to create DB + default admin ----------
+# ---------- CLI helpers ----------
 
 @app.cli.command('init-db')
 def init_db():
-    """Create tables and a default admin user (admin / admin123)."""
+    """Create the database tables."""
     db.create_all()
-    if not Admin.query.filter_by(username='admin').first():
-        admin = Admin(username='admin', password_hash=generate_password_hash('admin123'))
-        db.session.add(admin)
-        db.session.commit()
-    print('Database initialized. Login with admin / admin123')
+    click.echo('Database initialized.')
+
+
+@app.cli.command('create-admin')
+@click.option('--username', prompt=True)
+@click.password_option(confirmation_prompt=True)
+def create_admin(username, password):
+    """Create an admin account without using a default password."""
+    username = username.strip()
+    if not username:
+        raise click.ClickException('Username cannot be empty.')
+    if Admin.query.filter_by(username=username).first():
+        raise click.ClickException(f'An admin with username "{username}" already exists.')
+
+    admin = Admin(username=username, password_hash=generate_password_hash(password))
+    db.session.add(admin)
+    db.session.commit()
+    click.echo(f'Admin account "{username}" created.')
 
 
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
-        if not Admin.query.filter_by(username='admin').first():
-            admin = Admin(username='admin', password_hash=generate_password_hash('admin123'))
-            db.session.add(admin)
-            db.session.commit()
-    app.run(debug=True)
+    app.run(debug=os.environ.get('FLASK_DEBUG') == '1')

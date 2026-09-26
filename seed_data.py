@@ -6,9 +6,8 @@ import sys, io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 from datetime import date, timedelta
-from werkzeug.security import generate_password_hash
 from app import app
-from models import db, Admin, Book, Student, IssueRecord
+from models import db, Book, Student, IssueRecord
 
 BOOKS = [
     ("The Great Gatsby",        "F. Scott Fitzgerald", "9780743273565", "Fiction",       5),
@@ -37,14 +36,6 @@ STUDENTS = [
 def seed():
     with app.app_context():
         db.create_all()
-
-        # Ensure default admin exists
-        if not Admin.query.filter_by(username="admin").first():
-            db.session.add(Admin(
-                username="admin",
-                password_hash=generate_password_hash("admin123")
-            ))
-            print("✔  Admin user created  (admin / admin123)")
 
         # Add books
         added_books = 0
@@ -112,7 +103,7 @@ def seed():
         db.session.commit()
         print(f"✔  {records_added} issue record(s) added")
         print("\n🎉 Demo data seeded successfully!")
-        print("   Open http://127.0.0.1:5000 and log in with  admin / admin123")
+        print("   Create an admin account with: python -m flask --app app create-admin")
 
 if __name__ == "__main__":
     seed()

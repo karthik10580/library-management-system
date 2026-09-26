@@ -32,7 +32,10 @@
       </td>
       <td>
         {% if not r.returned %}
-        <a href="{{ url_for('return_book', record_id=r.id) }}" class="btn btn-sm btn-outline-success">Mark Returned</a>
+        <form method="post" action="{{ url_for('return_book', record_id=r.id) }}" class="d-inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-sm btn-outline-success">Mark Returned</button>
+        </form>
         {% endif %}
       </td>
     </tr>

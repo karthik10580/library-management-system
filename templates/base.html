@@ -16,7 +16,10 @@
         <a class="nav-link" href="{{ url_for('books') }}">Books</a>
         <a class="nav-link" href="{{ url_for('students') }}">Students</a>
         <a class="nav-link" href="{{ url_for('issues') }}">Issue / Return</a>
-        <a class="nav-link" href="{{ url_for('logout') }}">Logout</a>
+        <form method="post" action="{{ url_for('logout') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="nav-link btn btn-link">Logout</button>
+        </form>
       </div>
     </div>
   </nav>
