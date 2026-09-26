@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block title %}Issue Book - LIMS{% endblock %}
+{% block content %}
+<h3 class="mb-3">Issue Book</h3>
+<div class="card shadow-sm">
+  <div class="card-body">
+    <form method="post">
+      <div class="mb-3">
+        <label class="form-label">Book</label>
+        <select name="book_id" class="form-select" required>
+          <option value="" disabled selected>Select a book</option>
+          {% for book in books %}
+          <option value="{{ book.id }}">{{ book.title }} ({{ book.available_copies }} available)</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Student</label>
+        <select name="student_id" class="form-select" required>
+          <option value="" disabled selected>Select a student</option>
+          {% for student in students %}
+          <option value="{{ student.id }}">{{ student.name }} ({{ student.roll_number }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <p class="text-muted small">Due date will be automatically set to 14 days from today.</p>
+      <button type="submit" class="btn btn-primary">Issue Book</button>
+      <a href="{{ url_for('issues') }}" class="btn btn-outline-secondary">Cancel</a>
+    </form>
+  </div>
+</div>
+{% endblock %}

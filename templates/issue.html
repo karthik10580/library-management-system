@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+{% block title %}Issue / Return - LIMS{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3>Issue / Return Records</h3>
+  <a href="{{ url_for('add_issue') }}" class="btn btn-primary">+ Issue Book</a>
+</div>
+
+<table class="table table-bordered bg-white shadow-sm">
+  <thead class="table-dark">
+    <tr>
+      <th>Book</th><th>Student</th><th>Issue Date</th><th>Due Date</th>
+      <th>Return Date</th><th>Status</th><th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in records %}
+    <tr class="{{ 'table-danger' if r.is_overdue else '' }}">
+      <td>{{ r.book.title }}</td>
+      <td>{{ r.student.name }}</td>
+      <td>{{ r.issue_date }}</td>
+      <td>{{ r.due_date }}</td>
+      <td>{{ r.return_date or '-' }}</td>
+      <td>
+        {% if r.returned %}
+          <span class="badge bg-success">Returned</span>
+        {% elif r.is_overdue %}
+          <span class="badge bg-danger">Overdue</span>
+        {% else %}
+          <span class="badge bg-warning text-dark">Issued</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if not r.returned %}
+        <a href="{{ url_for('return_book', record_id=r.id) }}" class="btn btn-sm btn-outline-success">Mark Returned</a>
+        {% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="text-center text-muted">No records found.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
