@@ -71,7 +71,7 @@ Set `SECRET_KEY` to a long random value for a stable session key. Set `SESSION_C
 1. Push or merge this project to GitHub, then create a PythonAnywhere account and open a Bash console.
 2. Clone the repository and install dependencies in a virtual environment using the same Python version selected for the web app:
    ```
-   git clone https://github.com/karthik10580/library-management-system.git
+   git clone --branch karthik10580-library-management-fix https://github.com/karthik10580/library-management-system.git
    cd library-management-system
    python3 -m venv ~/.virtualenvs/library-management-system
    source ~/.virtualenvs/library-management-system/bin/activate
